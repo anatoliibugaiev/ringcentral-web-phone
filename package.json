@@ -4,9 +4,10 @@
     "test": "./node_modules/karma/bin/karma start",
     "test-watch": "npm run test -- --no-single-run",
     "build": "node version.js",
-    "start": "./node_modules/.bin/http-server"
+    "start": "node server.js"
   },
   "dependencies": {
+    "express": "^4.16.2",
     "sip.js": "^0.7.8"
   },
   "devDependencies": {
