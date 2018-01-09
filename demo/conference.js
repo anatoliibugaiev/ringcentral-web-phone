@@ -27,6 +27,8 @@ $(function() {
     window.nextCallID = 0;
     window.conference = {};
     window.cached_users = {};
+    window.pubnub = null;
+    window.subscription = null;
 
     /**
      * @param {jQuery|HTMLElement} $tpl
@@ -303,20 +305,20 @@ $(function() {
 
         session.on('accepted', function() { console.log('Event: Accepted'); });
         session.on('progress', function() { console.log('Event: Progress'); });
-        session.on('rejected', function() {
-            console.log('Event: Rejected');
+        session.on('rejected', function(data) {
+            console.log('Event: Rejected', data);
             unregisterCall(callId);
         });
-        session.on('failed', function() {
-            console.log('Event: Failed');
+        session.on('failed', function(data) {
+            console.log('Event: Failed', data);
             unregisterCall(callId);
         });
-        session.on('terminated', function() {
-            console.log('Event: Terminated');
+        session.on('terminated', function(data) {
+            console.log('Event: Terminated', data);
             unregisterCall(callId);
         });
-        session.on('cancel', function() {
-            console.log('Event: Cancel');
+        session.on('cancel', function(data) {
+            console.log('Event: Cancel', data);
             unregisterCall(callId);
         });
         session.on('refer', function() {
@@ -341,7 +343,7 @@ $(function() {
         session.mediaHandler.on('iceConnectionChecking', function() { console.log('Event: ICE: iceConnectionChecking'); });
         session.mediaHandler.on('iceConnectionConnected', function() { console.log('Event: ICE: iceConnectionConnected'); });
         session.mediaHandler.on('iceConnectionCompleted', function() { console.log('Event: ICE: iceConnectionCompleted'); });
-        session.mediaHandler.on('iceConnectionFailed', function() { console.log('Event: ICE: iceConnectionFailed'); });
+        session.mediaHandler.on('iceConnectionFailed', function(data) { console.log('Event: ICE: iceConnectionFailed', data); });
         session.mediaHandler.on('iceConnectionDisconnected', function() { console.log('Event: ICE: iceConnectionDisconnected'); });
         session.mediaHandler.on('iceConnectionClosed', function() { console.log('Event: ICE: iceConnectionClosed'); });
         session.mediaHandler.on('iceGatheringComplete', function() { console.log('Event: ICE: iceGatheringComplete'); });
@@ -402,7 +404,7 @@ $(function() {
     function updateConferenceStatus() {
         platform.get('/account/~/telephony/sessions/' + conference.id)
         .then(function(apiResponse){
-            console.log(apiResponse.json());
+            console.log('PUBNUB session STATUS:', JSON.stringify(apiResponse.json(), null, 2));
             conference = apiResponse.json();
             updateConferenceItem();
         })
@@ -546,7 +548,7 @@ $(function() {
                 })
                 .then(function(apiResponse){
                     var res = apiResponse.json();
-                    console.log(res);
+                    console.log('PUBNUB session bring-in:', JSON.stringify(res, null, 2));
                     cached_users[res.id] = user;
                     updateConferenceStatus();
                 });
@@ -811,6 +813,59 @@ $(function() {
   
                     onAccepted(conferenceCallId);
                     createConferenceItem(conferenceCallId);
+                })
+                .then(function() {
+                    console.log('SUBSCRIPTION start');
+                    return platform.post('/subscription',{
+                        'eventFilters': [
+                            '/restapi/v1.0/account/~/telephony/sessions'
+                        ],
+                        'deliveryMode': {
+                            'transportType': 'PubNub',
+                            'encryption': 'true'
+                        }
+                    });
+                })
+                .then(function(apiResponse){
+                    subscription = apiResponse.json();
+                    console.log('SUBSCRIPTION result:', subscription);
+
+                    pubnub = new PubNub({
+                        subscribeKey: subscription.deliveryMode.subscriberKey
+                    });
+
+                    pubnub.addListener({
+                        status: function(statusEvent) {
+                            console.log('PUBNUB: Status!!', JSON.stringify(statusEvent, null, 2));
+                        },
+                        message: function(message) {
+                            console.log('PUBNUB: New Message!!', message);
+
+                            message.message = pubnub.decrypt(message.message, subscription.deliveryMode.encryptionKey, {
+                                encryptKey: false,
+                                keyEncoding: 'base64',
+                                keyLength: 128,
+                                mode: 'ecb'
+                            });
+                            //console.log('PUBNUB: New Message!!', JSON.stringify(message.message, null, 2));
+                            var session = message.message.body.sessionId;
+                            var partyid = message.message.body.parties[0].id;
+                            var extension = message.message.body.parties[0].extensionId;
+                            var fromNum = message.message.body.parties[0].from.phoneNumber;
+                            var toNum = message.message.body.parties[0].to.phoneNumber;
+                            var status = message.message.body.parties[0].status.code;
+
+                            console.log('PUBNUB session:', session, 
+                            'partyid:', partyid,
+                            'extension:', extension,
+                            'from:', fromNum, 
+                            'to:', toNum, 
+                            'status:', status
+                        );
+                        }
+                    });      
+                    
+                    pubnub.subscribe({channels:[subscription.deliveryMode.address]});
                 });
         });
 
