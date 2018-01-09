@@ -861,7 +861,13 @@ $(function() {
                             'from:', fromNum, 
                             'to:', toNum, 
                             'status:', status
-                        );
+                            );
+
+                            if (status === 'Disconnected') {
+                                updateConferenceStatus();
+                            }
+
+
                         }
                     });      
                     
